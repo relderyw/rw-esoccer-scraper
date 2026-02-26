@@ -110,6 +110,8 @@ async def scraper_loop():
                 
                 current_events = data.get('events', [])
                 current_event_ids = set()
+                competitors_dict = {c['id']: c['name'] for c in data.get('competitors', [])}
+                champs_dict = {c['id']: c['name'] for c in data.get('champs', [])}
                 
                 for event in current_events:
                     if event.get('sportId') != 66: continue
@@ -120,9 +122,19 @@ async def scraper_loop():
                     score_raw = event.get('score', [0, 0])
                     home = int(score_raw[0]) if len(score_raw) > 0 else 0
                     away = int(score_raw[1]) if len(score_raw) > 1 else 0
-                    home_raw = event.get('home_team_name', '') or event.get('home_player_name', '')
-                    away_raw = event.get('away_team_name', '') or event.get('away_player_name', '')
-                    league = event.get('championshipName', '') or event.get('leagueName', '')
+                    competitor_ids = event.get('competitorIds', [])
+                    if len(competitor_ids) >= 2:
+                        home_raw = competitors_dict.get(competitor_ids[0], '')
+                        away_raw = competitors_dict.get(competitor_ids[1], '')
+                    else:
+                        home_raw, away_raw = '', ''
+                        
+                    if not home_raw or not away_raw:
+                        parts = str(event.get('name', '')).split(' vs. ')
+                        if len(parts) == 2:
+                            home_raw, away_raw = parts[0].strip(), parts[1].strip()
+                            
+                    league = champs_dict.get(event.get('champId'), '')
                     
                     live_cache[event_id] = {
                         "home_score": home,
@@ -157,16 +169,21 @@ async def scraper_loop():
                     # Tenta details
                     try:
                         details = await fetch_event_details(event_id)
-                        placar_final["ft_home"] = details.get("ft_home", placar_final["ft_home"])
-                        placar_final["ft_away"] = details.get("ft_away", placar_final["ft_away"])
+                        dh, da = details.get("ft_home", 0), details.get("ft_away", 0)
+                        if dh >= placar_final["ft_home"] and da >= placar_final["ft_away"] and (dh > 0 or da > 0):
+                            placar_final["ft_home"] = dh
+                            placar_final["ft_away"] = da
                         placar_final["ht_home"] = details.get("ht_home", placar_final["ht_home"])
                         placar_final["ht_away"] = details.get("ht_away", placar_final["ht_away"])
                     except:
-                        print(f"[DEBUG] Details falhou, tentando tracker")
+                        pass
                     
                     tracker = await fetch_event_tracker_info(event_id)
                     if tracker:
-                        placar_final.update(tracker)
+                        th, ta = tracker.get("ft_home", 0), tracker.get("ft_away", 0)
+                        if th >= placar_final["ft_home"] and ta >= placar_final["ft_away"] and (th > 0 or ta > 0):
+                            placar_final["ft_home"] = th
+                            placar_final["ft_away"] = ta
                     
                     doc = {
                         "event_id": event_id,
