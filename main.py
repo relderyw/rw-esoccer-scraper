@@ -26,6 +26,8 @@ previous_event_ids = set()
 live_cache = defaultdict(lambda: {
     "home_score": 0,
     "away_score": 0,
+    "ht_home": 0,
+    "ht_away": 0,
     "home_raw": "",
     "away_raw": "",
     "league": "",
@@ -122,6 +124,18 @@ async def scraper_loop():
                     score_raw = event.get('score', [0, 0])
                     home = int(score_raw[0]) if len(score_raw) > 0 else 0
                     away = int(score_raw[1]) if len(score_raw) > 1 else 0
+                    
+                    live_time = str(event.get('liveTime', event.get('ls', ''))).lower()
+                    cached_ht_home = live_cache[event_id].get("ht_home", 0)
+                    cached_ht_away = live_cache[event_id].get("ht_away", 0)
+                    
+                    if "1" in live_time or "int" in live_time:
+                        ht_home = home
+                        ht_away = away
+                    else:
+                        ht_home = cached_ht_home
+                        ht_away = cached_ht_away
+                        
                     competitor_ids = event.get('competitorIds', [])
                     if len(competitor_ids) >= 2:
                         home_raw = competitors_dict.get(competitor_ids[0], '')
@@ -139,6 +153,8 @@ async def scraper_loop():
                     live_cache[event_id] = {
                         "home_score": home,
                         "away_score": away,
+                        "ht_home": ht_home,
+                        "ht_away": ht_away,
                         "home_raw": home_raw,
                         "away_raw": away_raw,
                         "league": league,
@@ -162,8 +178,8 @@ async def scraper_loop():
                     placar_final = {
                         "ft_home": cached["home_score"],
                         "ft_away": cached["away_score"],
-                        "ht_home": 0,
-                        "ht_away": 0
+                        "ht_home": cached.get("ht_home", 0),
+                        "ht_away": cached.get("ht_away", 0)
                     }
                     
                     # Tenta details
@@ -173,8 +189,11 @@ async def scraper_loop():
                         if dh >= placar_final["ft_home"] and da >= placar_final["ft_away"] and (dh > 0 or da > 0):
                             placar_final["ft_home"] = dh
                             placar_final["ft_away"] = da
-                        placar_final["ht_home"] = details.get("ht_home", placar_final["ht_home"])
-                        placar_final["ht_away"] = details.get("ht_away", placar_final["ht_away"])
+                        hth = details.get("ht_home", 0)
+                        hta = details.get("ht_away", 0)
+                        if hth >= placar_final["ht_home"] and hta >= placar_final["ht_away"] and (hth > 0 or hta > 0):
+                            placar_final["ht_home"] = hth
+                            placar_final["ht_away"] = hta
                     except:
                         pass
                     
