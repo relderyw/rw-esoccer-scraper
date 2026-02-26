@@ -5,6 +5,7 @@ import asyncio
 import re
 import os
 from datetime import datetime, timezone, timedelta
+from typing import Dict, Set
 from collections import defaultdict
 
 app = FastAPI(title="RW Tips - Esoccer Result Scraper v2.0")
@@ -21,7 +22,7 @@ TRACKER_API = "https://sb2frontend-altenar2.biahosted.com/api/widget/GetEventTra
 
 previous_event_ids = set()
 
-# Cache expandido: event_id -> info em tempo real
+# Cache expandido
 live_cache = defaultdict(lambda: {
     "home_score": 0,
     "away_score": 0,
@@ -44,14 +45,13 @@ def extract_pure_nick_canonical(raw: str) -> str:
     return words[-1] if words else raw.strip().upper()[:15]
 
 def map_league_name(name: str) -> str:
-    # Cole aqui sua função completa de mapeamento de ligas
+    # Cole aqui sua função completa de mapeamento
     if "H2H" in name.upper():
         return "H2H 8 MIN"
     if "BATTLE" in name.upper():
         return "BATTLE 8 MIN"
     if "GT" in name.upper():
         return "GT LEAGUE 12 MIN"
-    # ... adicione o resto
     return name or "UNKNOWN"
 
 # ====================== FETCH ======================
@@ -89,7 +89,6 @@ async def fetch_event_tracker_info(event_id: str) -> Dict | None:
             r = await session.get(url)
             r.raise_for_status()
             data = r.json()
-            # Ajuste conforme JSON real (você pode printar data para ver estrutura)
             score = data.get("score", [0, 0])
             home = int(score[0]) if len(score) > 0 else 0
             away = int(score[1]) if len(score) > 1 else 0
