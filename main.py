@@ -222,6 +222,17 @@ async def scraper_loop():
                     await matches.update_one({"event_id": event_id}, {"$set": doc}, upsert=True)
                     print(f"✅ SALVO: {home_nick} {placar_final['ft_home']}-{placar_final['ft_away']} {away_nick} (HT: {placar_final['ht_home']}-{placar_final['ht_away']})")
                 
+                if finished_ids:
+                    # Limita a coleção para manter no máximo 1000 jogos
+                    total_matches = await matches.count_documents({})
+                    if total_matches > 1000:
+                        excess = total_matches - 1000
+                        oldest_matches = await matches.find({}, {"_id": 1}).sort("finished_at", 1).limit(excess).to_list(length=excess)
+                        old_ids = [m["_id"] for m in oldest_matches]
+                        if old_ids:
+                            await matches.delete_many({"_id": {"$in": old_ids}})
+                            print(f"🧹 [CLEANUP] {len(old_ids)} jogos mais antigos excluídos para manter no máximo 1000.")
+
                 previous_event_ids = current_event_ids
                 
         except Exception as e:
