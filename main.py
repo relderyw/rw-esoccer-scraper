@@ -31,6 +31,7 @@ live_cache = defaultdict(lambda: {
     "home_raw": "",
     "away_raw": "",
     "league": "",
+    "started_at": None,
     "last_seen": datetime.now(timezone.utc)
 })
 
@@ -150,6 +151,15 @@ async def scraper_loop():
                             
                     league = champs_dict.get(event.get('champId'), '')
                     
+                    # Captura startDate da API
+                    start_date_str = event.get('startDate', '')
+                    started_at = None
+                    if start_date_str:
+                        try:
+                            started_at = datetime.fromisoformat(start_date_str.replace('Z', '+00:00'))
+                        except:
+                            started_at = None
+                    
                     live_cache[event_id] = {
                         "home_score": home,
                         "away_score": away,
@@ -158,6 +168,7 @@ async def scraper_loop():
                         "home_raw": home_raw,
                         "away_raw": away_raw,
                         "league": league,
+                        "started_at": started_at,
                         "last_seen": datetime.now(timezone.utc)
                     }
                     print(f"[DEBUG LIVE] {event_id}: {home_raw} {home}-{away} {away_raw}")
@@ -215,6 +226,7 @@ async def scraper_loop():
                         "away_score_ht": placar_final["ht_away"],
                         "home_score_ft": placar_final["ft_home"],
                         "away_score_ft": placar_final["ft_away"],
+                        "started_at": cached.get("started_at"),
                         "finished_at": datetime.now(timezone.utc),
                         "source": "desaparecimento_cache_tracker"
                     }
