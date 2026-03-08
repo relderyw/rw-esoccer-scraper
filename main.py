@@ -110,15 +110,29 @@ def extract_pure_nick_canonical(raw: str) -> str:
     return raw.strip()
 
 
-def map_league_name(name: str) -> str:
-    # Cole aqui sua função completa de mapeamento
-    if "H2H" in name.upper():
+def map_league_name(name: str, duration: str = "8 min") -> str:
+    original = name.upper()
+
+    if "H2H" in original:
         return "H2H 8 MIN"
-    if "BATTLE" in name.upper():
+
+    if "BATTLE" in original:
+        if "6" in duration or "3 MIN" in duration.upper() or "VOLTA" in original:
+            return "VOLTA - 6 MIN"
         return "BATTLE 8 MIN"
-    if "GT" in name.upper():
-        return "GT LEAGUE 12 MIN"
-    return name or "UNKNOWN"
+
+    if "GT " in original or "GT LEAGUES" in original:
+        return "GT LEAGUES"
+
+    if "EAL" in original or "ADRIATIC" in original:
+        return "ADRIATIC"
+
+    if "CHAMPIONS LEAGUE" in original and "BATTLE" not in original:
+        if "12" in duration or "6 MIN" in duration.upper():
+            return "CHAMPIONS LEAGUE - 12 MIN"
+        return "CHAMPIONS LEAGUE"
+
+    return name.strip() or "UNKNOWN"
 
 # ====================== FETCH ======================
 
@@ -276,8 +290,9 @@ async def superbet_scraper_loop():
                         cached_tournament = superbet_tournaments.get(t_id, {})
                         league_raw_name = cached_tournament.get(
                             'name', f"Superbet League {t_id}")
-                        league_mapped = map_league_name(league_raw_name)
                         duration = cached_tournament.get('duration', '12 min')
+                        league_mapped = map_league_name(
+                            league_raw_name, duration)
 
                         utc_date = event.get('utcDate')
                         finished_at = datetime.fromisoformat(utc_date.replace(
