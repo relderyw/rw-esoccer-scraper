@@ -444,6 +444,16 @@ async def get_by_event_id(event_id: str):
 
 @app.on_event("startup")
 async def startup():
+    print("🧹 [CLEANUP] Removendo jogos legados da Altenar (que não são Valhalla/Valkyrie)...")
+    try:
+        result = await matches.delete_many({
+            "source": "desaparecimento_cache_tracker",
+            "league_mapped": {"$not": {"$regex": "VALHALLA|VALKYRIE", "$options": "i"}}
+        })
+        print(f"🧹 [CLEANUP] {result.deleted_count} jogos legados removidos com sucesso!")
+    except Exception as e:
+        print(f"Erro no cleanup: {e}")
+
     asyncio.create_task(superbet_struct_cacher_loop())
     asyncio.create_task(superbet_scraper_loop())
     asyncio.create_task(scraper_loop())
