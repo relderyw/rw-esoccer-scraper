@@ -20,7 +20,15 @@ LIVE_API = "https://sb2frontend-altenar2.biahosted.com/api/widget/GetLiveEvents?
 EVENT_API = "https://sb2frontend-altenar2.biahosted.com/api/widget/GetEventDetails?culture=pt-BR&timezoneOffset=-180&integration=estrelabet&deviceType=1&numFormat=en-GB&countryCode=BR&eventId={}&showNonBoosts=false"
 TRACKER_API = "https://sb2frontend-altenar2.biahosted.com/api/widget/GetEventTrackerInfo?culture=pt-BR&timezoneOffset=-180&integration=estrelabet&deviceType=1&numFormat=en-GB&countryCode=BR&eventId={}"
 
+SUPERBET_STRUCT_API = "https://production-superbet-offer-br.freetls.fastly.net/v2/pt-BR/struct?currentStatus=active"
+SUPERBET_HISTORY_API = "https://production-superbet-offer-br.freetls.fastly.net/v2/pt-BR/events/by-date?compression=true&sportId=75&currentStatus=finished&startDate={}&endDate={}"
+
 previous_event_ids = set()
+superbet_seen_match_ids = set()
+
+# Cache de torneios Superbet
+superbet_tournaments = {}
+
 
 # Cache expandido
 live_cache = defaultdict(lambda: {
@@ -39,13 +47,55 @@ live_cache = defaultdict(lambda: {
 def extract_pure_nick_canonical(raw: str) -> str:
     if not raw or not isinstance(raw, str):
         return ""
-    m = re.search(r'\(([^)]+)\)', raw)
-    if m:
-        nick = m.group(1).strip().upper()
-        if 2 <= len(nick) <= 16 and (nick.isupper() or '_' in nick or any(c.isdigit() for c in nick)):
-            return nick
-    words = re.findall(r'\b[A-Z0-9_]{2,15}\b', raw.upper())
-    return words[-1] if words else raw.strip().upper()[:15]
+    
+    # Common team names and abbreviations
+    common_teams = [
+        'Spain', 'France', 'Germany', 'Italy', 'Brazil', 'Argentina', 'Portugal', 'Netherlands', 'England', 'Belgium',
+        'Real Madrid', 'Barcelona', 'FC Bayern', 'Man City', 'Man Utd', 'Liverpool', 'PSG', 'Juventus', 'Arsenal', 'Chelsea',
+        'Borussia Dortmund', 'Bayer Leverkusen', 'Napoli', 'AC Milan', 'Inter', 'Inter de Milão', 'Atletico Madrid', 'Sevilla',
+        'Piemonte Calcio', 'Latium', 'Genoa', 'Roma', 'RB Leipzig', 'Real Sociedad', 'Athletic Club', 'Aston Villa', 'Spurs'
+    ]
+    known_acronyms = ['PSG', 'RMA', 'FCB', 'MCI', 'MUN', 'LIV', 'CHE', 'ARS', 'TOT', 'JUV', 'MIL', 'INT', 'NAP', 'BVB', 'ATM', 'FC', 'CF', 'SC']
+
+    # 1. Parentheses logic
+    paren_match = re.search(r'(.*?)\((.*?)\)', raw)
+    if paren_match:
+        part1, part2 = paren_match.group(1).strip(), paren_match.group(2).strip()
+        
+        is_p1_caps = bool(re.match(r'^[A-Z0-9\s_]+$', part1)) and len(part1) > 1
+        is_p2_caps = bool(re.match(r'^[A-Z0-9\s_]+$', part2)) and len(part2) > 1
+        
+        if is_p2_caps and not is_p1_caps: return part2
+        if is_p1_caps and not is_p2_caps: return part1
+        
+        if any(team in part1 for team in common_teams): return part2
+        if any(team in part2 for team in common_teams): return part1
+        
+        return part2
+
+    # 2. No parentheses logic
+    clean_str = raw.strip()
+    
+    if " " not in clean_str and re.match(r'^[A-Z0-9_]+$', clean_str) and clean_str not in known_acronyms:
+        return clean_str
+        
+    # Strip known teams out completely
+    team_words_to_remove = sorted(common_teams + known_acronyms, key=len, reverse=True)
+    for team in team_words_to_remove:
+        clean_str = re.sub(rf'\b{re.escape(team)}\b', '', clean_str, flags=re.IGNORECASE).strip()
+    
+    clean_str = re.sub(r'^[-·]+|[-·]+$', '', clean_str).strip()
+    clean_str = re.sub(r'\s+', ' ', clean_str)
+    
+    if clean_str:
+        return clean_str
+
+    # Ultimate fallback
+    parts = raw.split()
+    if len(parts) > 1:
+        return parts[-1]
+        
+    return raw.strip()
 
 def map_league_name(name: str) -> str:
     # Cole aqui sua função completa de mapeamento
@@ -99,6 +149,118 @@ async def fetch_event_tracker_info(event_id: str) -> Dict | None:
     except Exception as e:
         print(f"[WARN] Tracker falhou {event_id}: {e}")
         return None
+
+# ====================== SUPERBET SCRAPERS ======================
+async def superbet_struct_cacher_loop():
+    print("🚀 Inciando cacher de torneios da Superbet (1h)")
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=20) as session:
+                r = await session.get(SUPERBET_STRUCT_API)
+                data = r.json()
+                tournaments = data.get('data', {}).get('tournaments', {})
+                count = 0
+                for t_id, t_data in tournaments.items():
+                    name = t_data.get('localNames', {}).get('pt-BR', t_data.get('name', ''))
+                    footer = t_data.get('footer', '')
+                    duration_match = re.search(r'(\d+x\d+)', footer, re.IGNORECASE)
+                    duration = f"{duration_match.group(1)} min" if duration_match else "12 min"
+                    superbet_tournaments[str(t_id)] = {"name": name, "duration": duration}
+                    count += 1
+                print(f"[SUPERBET STRUCT] Cache atualizado com {count} torneios.")
+        except Exception as e:
+            print(f"[SUPERBET STRUCT] Erro ao atualizar: {e}")
+        
+        await asyncio.sleep(3600)
+
+async def superbet_scraper_loop():
+    print("🚀 Superbet History Scraper Iniciado (30s)")
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            past = now - timedelta(hours=3) # Buscar as ultimas 3 horas é suficiente se batemos a cada 30s
+            
+            start_date = past.strftime('%Y-%m-%d+%H:%M:%S')
+            end_date = now.strftime('%Y-%m-%d+%H:%M:%S')
+            
+            url = SUPERBET_HISTORY_API.format(start_date, end_date)
+            
+            async with httpx.AsyncClient(timeout=30) as session:
+                r = await session.get(url, headers={'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0'})
+                if r.status_code == 200:
+                    data = r.json()
+                    events = data.get('data', [])
+                    
+                    saved_count = 0
+                    for event in events:
+                        event_id = str(event.get('eventId'))
+                        
+                        if event_id in superbet_seen_match_ids:
+                            continue
+                            
+                        match_name = event.get('matchName', '')
+                        parts = match_name.split('·')
+                        home_raw = parts[0].strip() if len(parts) > 0 else ''
+                        away_raw = parts[1].strip() if len(parts) > 1 else ''
+                        
+                        home_nick = extract_pure_nick_canonical(home_raw)
+                        away_nick = extract_pure_nick_canonical(away_raw)
+                        
+                        meta = event.get('metadata', {})
+                        ft_home = int(meta.get('homeTeamScore', 0))
+                        ft_away = int(meta.get('awayTeamScore', 0))
+                        
+                        ht_home = 0
+                        ht_away = 0
+                        periods = meta.get('periods', [])
+                        for p in periods:
+                            if p.get('num') == 1:
+                                ht_home = int(p.get('homeTeamScore', 0))
+                                ht_away = int(p.get('awayTeamScore', 0))
+                                break
+                                
+                        t_id = str(event.get('tournamentId'))
+                        league_mapped = superbet_tournaments.get(t_id, {}).get('name', f"Superbet League {t_id}")
+                        league_mapped = map_league_name(league_mapped)
+                        
+                        utc_date = event.get('utcDate')
+                        finished_at = datetime.fromisoformat(utc_date.replace('Z', '+00:00')) if utc_date else datetime.now(timezone.utc)
+                        
+                        doc = {
+                            "event_id": f"sb-{event_id}",
+                            "league_mapped": league_mapped,
+                            "home_raw": home_raw,
+                            "away_raw": away_raw,
+                            "home_nick": home_nick,
+                            "away_nick": away_nick,
+                            "home_score_ht": ht_home,
+                            "away_score_ht": ht_away,
+                            "home_score_ft": ft_home,
+                            "away_score_ft": ft_away,
+                            "started_at": finished_at - timedelta(minutes=15),
+                            "finished_at": finished_at,
+                            "source": "superbet_api"
+                        }
+                        
+                        await matches.update_one({"event_id": doc["event_id"]}, {"$set": doc}, upsert=True)
+                        superbet_seen_match_ids.add(event_id)
+                        saved_count += 1
+                        print(f"✅ SUPERBET: {home_nick} {ft_home}-{ft_away} {away_nick}")
+
+                    if saved_count > 0:
+                        total_matches = await matches.count_documents({})
+                        if total_matches > 2000:
+                            excess = total_matches - 2000
+                            oldest_matches = await matches.find({}, {"_id": 1}).sort("finished_at", 1).limit(excess).to_list(length=excess)
+                            old_ids = [m["_id"] for m in oldest_matches]
+                            if old_ids:
+                                await matches.delete_many({"_id": {"$in": old_ids}})
+                                print(f"🧹 [CLEANUP] Superbet {len(old_ids)} jogos excluídos (limite 2000).")
+
+        except Exception as e:
+            print(f"Superbet Scraper error: {e}")
+            
+        await asyncio.sleep(30)
 
 # ====================== SCRAPER LOOP ======================
 async def scraper_loop():
@@ -215,24 +377,28 @@ async def scraper_loop():
                             placar_final["ft_home"] = th
                             placar_final["ft_away"] = ta
                     
-                    doc = {
-                        "event_id": event_id,
-                        "league_mapped": league_mapped,
-                        "home_raw": home_raw,
-                        "away_raw": away_raw,
-                        "home_nick": home_nick,
-                        "away_nick": away_nick,
-                        "home_score_ht": placar_final["ht_home"],
-                        "away_score_ht": placar_final["ht_away"],
-                        "home_score_ft": placar_final["ft_home"],
-                        "away_score_ft": placar_final["ft_away"],
-                        "started_at": cached.get("started_at"),
-                        "finished_at": datetime.now(timezone.utc),
-                        "source": "desaparecimento_cache_tracker"
-                    }
-                    
-                    await matches.update_one({"event_id": event_id}, {"$set": doc}, upsert=True)
-                    print(f"✅ SALVO: {home_nick} {placar_final['ft_home']}-{placar_final['ft_away']} {away_nick} (HT: {placar_final['ht_home']}-{placar_final['ht_away']})")
+                    # ALtenar DB Sync - APENAS LIGAS VALHALLA E VALKYRIE
+                    if "VALHALLA" in league_mapped.upper() or "VALKYRIE" in league_mapped.upper():
+                        doc = {
+                            "event_id": event_id,
+                            "league_mapped": league_mapped,
+                            "home_raw": home_raw,
+                            "away_raw": away_raw,
+                            "home_nick": home_nick,
+                            "away_nick": away_nick,
+                            "home_score_ht": placar_final["ht_home"],
+                            "away_score_ht": placar_final["ht_away"],
+                            "home_score_ft": placar_final["ft_home"],
+                            "away_score_ft": placar_final["ft_away"],
+                            "started_at": cached.get("started_at"),
+                            "finished_at": datetime.now(timezone.utc),
+                            "source": "desaparecimento_cache_tracker"
+                        }
+                        
+                        await matches.update_one({"event_id": event_id}, {"$set": doc}, upsert=True)
+                        print(f"✅ ALTENAR SALVO: {home_nick} {placar_final['ft_home']}-{placar_final['ft_away']} {away_nick} (HT: {placar_final['ht_home']}-{placar_final['ht_away']})")
+                    else:
+                        print(f"⏭️ ALTENAR IGNORADO (Não é Valhalla/Valkyrie): {home_nick} vs {away_nick} na liga {league_mapped}")
                 
                 if finished_ids:
                     # Limita a coleção para manter no máximo 1000 jogos
@@ -278,6 +444,8 @@ async def get_by_event_id(event_id: str):
 
 @app.on_event("startup")
 async def startup():
+    asyncio.create_task(superbet_struct_cacher_loop())
+    asyncio.create_task(superbet_scraper_loop())
     asyncio.create_task(scraper_loop())
 
 if __name__ == "__main__":
