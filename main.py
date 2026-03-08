@@ -174,6 +174,10 @@ async def superbet_struct_cacher_loop():
         await asyncio.sleep(3600)
 
 async def superbet_scraper_loop():
+    print("⏳ Aguardando cache de torneios da Superbet carregar...")
+    while not superbet_tournaments:
+        await asyncio.sleep(1)
+    
     print("🚀 Superbet History Scraper Iniciado (30s)")
     while True:
         try:
@@ -220,8 +224,10 @@ async def superbet_scraper_loop():
                                 break
                                 
                         t_id = str(event.get('tournamentId'))
-                        league_mapped = superbet_tournaments.get(t_id, {}).get('name', f"Superbet League {t_id}")
-                        league_mapped = map_league_name(league_mapped)
+                        cached_tournament = superbet_tournaments.get(t_id, {})
+                        league_raw_name = cached_tournament.get('name', f"Superbet League {t_id}")
+                        league_mapped = map_league_name(league_raw_name)
+                        duration = cached_tournament.get('duration', '12 min')
                         
                         utc_date = event.get('utcDate')
                         finished_at = datetime.fromisoformat(utc_date.replace('Z', '+00:00')) if utc_date else datetime.now(timezone.utc)
@@ -229,6 +235,7 @@ async def superbet_scraper_loop():
                         doc = {
                             "event_id": f"sb-{event_id}",
                             "league_mapped": league_mapped,
+                            "duration": duration,
                             "home_raw": home_raw,
                             "away_raw": away_raw,
                             "home_nick": home_nick,
@@ -245,7 +252,7 @@ async def superbet_scraper_loop():
                         await matches.update_one({"event_id": doc["event_id"]}, {"$set": doc}, upsert=True)
                         superbet_seen_match_ids.add(event_id)
                         saved_count += 1
-                        print(f"✅ SUPERBET: {home_nick} {ft_home}-{ft_away} {away_nick}")
+                        print(f"✅ SUPERBET: {home_nick} {ft_home}-{ft_away} {away_nick} ({league_mapped})")
 
                     if saved_count > 0:
                         total_matches = await matches.count_documents({})
