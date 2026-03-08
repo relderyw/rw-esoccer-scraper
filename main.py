@@ -44,10 +44,12 @@ live_cache = defaultdict(lambda: {
 })
 
 # ====================== AUXILIARES ======================
+
+
 def extract_pure_nick_canonical(raw: str) -> str:
     if not raw or not isinstance(raw, str):
         return ""
-    
+
     # Common team names and abbreviations
     common_teams = [
         'Spain', 'France', 'Germany', 'Italy', 'Brazil', 'Argentina', 'Portugal', 'Netherlands', 'England', 'Belgium',
@@ -55,38 +57,48 @@ def extract_pure_nick_canonical(raw: str) -> str:
         'Borussia Dortmund', 'Bayer Leverkusen', 'Napoli', 'AC Milan', 'Inter', 'Inter de Milão', 'Atletico Madrid', 'Sevilla',
         'Piemonte Calcio', 'Latium', 'Genoa', 'Roma', 'RB Leipzig', 'Real Sociedad', 'Athletic Club', 'Aston Villa', 'Spurs'
     ]
-    known_acronyms = ['PSG', 'RMA', 'FCB', 'MCI', 'MUN', 'LIV', 'CHE', 'ARS', 'TOT', 'JUV', 'MIL', 'INT', 'NAP', 'BVB', 'ATM', 'FC', 'CF', 'SC']
+    known_acronyms = ['PSG', 'RMA', 'FCB', 'MCI', 'MUN', 'LIV', 'CHE', 'ARS',
+                      'TOT', 'JUV', 'MIL', 'INT', 'NAP', 'BVB', 'ATM', 'FC', 'CF', 'SC']
 
     # 1. Parentheses logic
     paren_match = re.search(r'(.*?)\((.*?)\)', raw)
     if paren_match:
-        part1, part2 = paren_match.group(1).strip(), paren_match.group(2).strip()
-        
-        is_p1_caps = bool(re.match(r'^[A-Z0-9\s_]+$', part1)) and len(part1) > 1
-        is_p2_caps = bool(re.match(r'^[A-Z0-9\s_]+$', part2)) and len(part2) > 1
-        
-        if is_p2_caps and not is_p1_caps: return part2
-        if is_p1_caps and not is_p2_caps: return part1
-        
-        if any(team in part1 for team in common_teams): return part2
-        if any(team in part2 for team in common_teams): return part1
-        
+        part1, part2 = paren_match.group(
+            1).strip(), paren_match.group(2).strip()
+
+        is_p1_caps = bool(
+            re.match(r'^[A-Z0-9\s_]+$', part1)) and len(part1) > 1
+        is_p2_caps = bool(
+            re.match(r'^[A-Z0-9\s_]+$', part2)) and len(part2) > 1
+
+        if is_p2_caps and not is_p1_caps:
+            return part2
+        if is_p1_caps and not is_p2_caps:
+            return part1
+
+        if any(team in part1 for team in common_teams):
+            return part2
+        if any(team in part2 for team in common_teams):
+            return part1
+
         return part2
 
     # 2. No parentheses logic
     clean_str = raw.strip()
-    
+
     if " " not in clean_str and re.match(r'^[A-Z0-9_]+$', clean_str) and clean_str not in known_acronyms:
         return clean_str
-        
+
     # Strip known teams out completely
-    team_words_to_remove = sorted(common_teams + known_acronyms, key=len, reverse=True)
+    team_words_to_remove = sorted(
+        common_teams + known_acronyms, key=len, reverse=True)
     for team in team_words_to_remove:
-        clean_str = re.sub(rf'\b{re.escape(team)}\b', '', clean_str, flags=re.IGNORECASE).strip()
-    
+        clean_str = re.sub(rf'\b{re.escape(team)}\b',
+                           '', clean_str, flags=re.IGNORECASE).strip()
+
     clean_str = re.sub(r'^[-·]+|[-·]+$', '', clean_str).strip()
     clean_str = re.sub(r'\s+', ' ', clean_str)
-    
+
     if clean_str:
         return clean_str
 
@@ -94,8 +106,9 @@ def extract_pure_nick_canonical(raw: str) -> str:
     parts = raw.split()
     if len(parts) > 1:
         return parts[-1]
-        
+
     return raw.strip()
+
 
 def map_league_name(name: str) -> str:
     # Cole aqui sua função completa de mapeamento
@@ -108,23 +121,26 @@ def map_league_name(name: str) -> str:
     return name or "UNKNOWN"
 
 # ====================== FETCH ======================
+
+
 async def fetch_event_details(event_id: str) -> Dict:
     url = EVENT_API.format(event_id)
     async with httpx.AsyncClient(timeout=10) as session:
         r = await session.get(url)
         r.raise_for_status()
         data = r.json()
-        
+
         score = data.get('score', [0, 0])
         ft_home = int(score[0]) if len(score) > 0 else 0
         ft_away = int(score[1]) if len(score) > 1 else 0
-        
+
         ht_home = ht_away = 0
-        
+
         competitors = data.get('competitors', [])
         home_raw = competitors[0].get('name', '') if competitors else ''
-        away_raw = competitors[1].get('name', '') if len(competitors) > 1 else ''
-        
+        away_raw = competitors[1].get(
+            'name', '') if len(competitors) > 1 else ''
+
         return {
             "home_raw": home_raw,
             "away_raw": away_raw,
@@ -134,6 +150,7 @@ async def fetch_event_details(event_id: str) -> Dict:
             "ft_away": ft_away,
             "league": data.get('championshipName', data.get('leagueName', ''))
         }
+
 
 async def fetch_event_tracker_info(event_id: str) -> Dict | None:
     url = TRACKER_API.format(event_id)
@@ -151,69 +168,101 @@ async def fetch_event_tracker_info(event_id: str) -> Dict | None:
         return None
 
 # ====================== SUPERBET SCRAPERS ======================
+SUPERBET_STRUCT_API = "https://production-superbet-offer-br.freetls.fastly.net/v2/pt-BR/struct"
+
+# ... (omitting lines between for brevity, wait, I can just replace the whole function and the constant if I select the right lines. Actually I will just replace `superbet_struct_cacher_loop` here, and use the hardcoded url inside it to be safe, or just replace the function body.)
+
+
 async def superbet_struct_cacher_loop():
     print("🚀 Inciando cacher de torneios da Superbet (1h)")
+    # URL mudou para pegar todos os torneios, mesmo os recém-fechados
+    url = "https://production-superbet-offer-br.freetls.fastly.net/v2/pt-BR/struct"
     while True:
         try:
             async with httpx.AsyncClient(timeout=20) as session:
-                r = await session.get(SUPERBET_STRUCT_API)
+                r = await session.get(url, headers={'User-Agent': 'Mozilla/5.0'})
                 data = r.json()
-                tournaments = data.get('data', {}).get('tournaments', {})
+                tournaments = data.get('data', {}).get('tournaments', [])
                 count = 0
-                for t_id, t_data in tournaments.items():
-                    name = t_data.get('localNames', {}).get('pt-BR', t_data.get('name', ''))
-                    footer = t_data.get('footer', '')
-                    duration_match = re.search(r'(\d+x\d+)', footer, re.IGNORECASE)
-                    duration = f"{duration_match.group(1)} min" if duration_match else "12 min"
-                    superbet_tournaments[str(t_id)] = {"name": name, "duration": duration}
-                    count += 1
-                print(f"[SUPERBET STRUCT] Cache atualizado com {count} torneios.")
+
+                # Se for lista (como é no endpoint sem currentStatus)
+                if isinstance(tournaments, list):
+                    for t_data in tournaments:
+                        t_id = str(t_data.get('id', ''))
+                        name = t_data.get('localNames', {}).get(
+                            'pt-BR', t_data.get('name', ''))
+                        footer = str(t_data.get('footer', ''))
+                        duration_match = re.search(
+                            r'(\d+x\d+)', footer, re.IGNORECASE)
+                        duration = f"{duration_match.group(1)} min" if duration_match else "12 min"
+                        if t_id:
+                            superbet_tournaments[t_id] = {
+                                "name": name, "duration": duration}
+                            count += 1
+
+                # Se por algum motivo voltar a ser dict
+                elif isinstance(tournaments, dict):
+                    for t_id, t_data in tournaments.items():
+                        name = t_data.get('localNames', {}).get(
+                            'pt-BR', t_data.get('name', ''))
+                        footer = str(t_data.get('footer', ''))
+                        duration_match = re.search(
+                            r'(\d+x\d+)', footer, re.IGNORECASE)
+                        duration = f"{duration_match.group(1)} min" if duration_match else "12 min"
+                        superbet_tournaments[str(t_id)] = {
+                            "name": name, "duration": duration}
+                        count += 1
+
+                print(
+                    f"✅ [SUPERBET STRUCT] Cache atualizado com {count} torneios.")
         except Exception as e:
-            print(f"[SUPERBET STRUCT] Erro ao atualizar: {e}")
-        
+            print(f"❌ [SUPERBET STRUCT] Erro ao atualizar: {e}")
+
         await asyncio.sleep(3600)
+
 
 async def superbet_scraper_loop():
     print("⏳ Aguardando cache de torneios da Superbet carregar...")
     while not superbet_tournaments:
         await asyncio.sleep(1)
-    
+
     print("🚀 Superbet History Scraper Iniciado (30s)")
     while True:
         try:
             now = datetime.now(timezone.utc)
-            past = now - timedelta(hours=3) # Buscar as ultimas 3 horas é suficiente se batemos a cada 30s
-            
+            # Buscar as ultimas 3 horas é suficiente se batemos a cada 30s
+            past = now - timedelta(hours=3)
+
             start_date = past.strftime('%Y-%m-%d+%H:%M:%S')
             end_date = now.strftime('%Y-%m-%d+%H:%M:%S')
-            
+
             url = SUPERBET_HISTORY_API.format(start_date, end_date)
-            
+
             async with httpx.AsyncClient(timeout=30) as session:
                 r = await session.get(url, headers={'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0'})
                 if r.status_code == 200:
                     data = r.json()
                     events = data.get('data', [])
-                    
+
                     saved_count = 0
                     for event in events:
                         event_id = str(event.get('eventId'))
-                        
+
                         if event_id in superbet_seen_match_ids:
                             continue
-                            
+
                         match_name = event.get('matchName', '')
                         parts = match_name.split('·')
                         home_raw = parts[0].strip() if len(parts) > 0 else ''
                         away_raw = parts[1].strip() if len(parts) > 1 else ''
-                        
+
                         home_nick = extract_pure_nick_canonical(home_raw)
                         away_nick = extract_pure_nick_canonical(away_raw)
-                        
+
                         meta = event.get('metadata', {})
                         ft_home = int(meta.get('homeTeamScore', 0))
                         ft_away = int(meta.get('awayTeamScore', 0))
-                        
+
                         ht_home = 0
                         ht_away = 0
                         periods = meta.get('periods', [])
@@ -222,16 +271,18 @@ async def superbet_scraper_loop():
                                 ht_home = int(p.get('homeTeamScore', 0))
                                 ht_away = int(p.get('awayTeamScore', 0))
                                 break
-                                
+
                         t_id = str(event.get('tournamentId'))
                         cached_tournament = superbet_tournaments.get(t_id, {})
-                        league_raw_name = cached_tournament.get('name', f"Superbet League {t_id}")
+                        league_raw_name = cached_tournament.get(
+                            'name', f"Superbet League {t_id}")
                         league_mapped = map_league_name(league_raw_name)
                         duration = cached_tournament.get('duration', '12 min')
-                        
+
                         utc_date = event.get('utcDate')
-                        finished_at = datetime.fromisoformat(utc_date.replace('Z', '+00:00')) if utc_date else datetime.now(timezone.utc)
-                        
+                        finished_at = datetime.fromisoformat(utc_date.replace(
+                            'Z', '+00:00')) if utc_date else datetime.now(timezone.utc)
+
                         doc = {
                             "event_id": f"sb-{event_id}",
                             "league_mapped": league_mapped,
@@ -248,11 +299,12 @@ async def superbet_scraper_loop():
                             "finished_at": finished_at,
                             "source": "superbet_api"
                         }
-                        
+
                         await matches.update_one({"event_id": doc["event_id"]}, {"$set": doc}, upsert=True)
                         superbet_seen_match_ids.add(event_id)
                         saved_count += 1
-                        print(f"✅ SUPERBET: {home_nick} {ft_home}-{ft_away} {away_nick} ({league_mapped})")
+                        print(
+                            f"✅ SUPERBET: {home_nick} {ft_home}-{ft_away} {away_nick} ({league_mapped})")
 
                     if saved_count > 0:
                         total_matches = await matches.count_documents({})
@@ -262,73 +314,82 @@ async def superbet_scraper_loop():
                             old_ids = [m["_id"] for m in oldest_matches]
                             if old_ids:
                                 await matches.delete_many({"_id": {"$in": old_ids}})
-                                print(f"🧹 [CLEANUP] Superbet {len(old_ids)} jogos excluídos (limite 2000).")
+                                print(
+                                    f"🧹 [CLEANUP] Superbet {len(old_ids)} jogos excluídos (limite 2000).")
 
         except Exception as e:
             print(f"Superbet Scraper error: {e}")
-            
+
         await asyncio.sleep(30)
 
 # ====================== SCRAPER LOOP ======================
+
+
 async def scraper_loop():
     global previous_event_ids
     print("🚀 Scraper iniciado - cache + detecção por desaparecimento")
-    
+
     while True:
         try:
             async with httpx.AsyncClient(timeout=20) as session:
                 r = await session.get(LIVE_API)
                 data = r.json()
-                
+
                 current_events = data.get('events', [])
                 current_event_ids = set()
-                competitors_dict = {c['id']: c['name'] for c in data.get('competitors', [])}
-                champs_dict = {c['id']: c['name'] for c in data.get('champs', [])}
-                
+                competitors_dict = {c['id']: c['name']
+                                    for c in data.get('competitors', [])}
+                champs_dict = {c['id']: c['name']
+                               for c in data.get('champs', [])}
+
                 for event in current_events:
-                    if event.get('sportId') != 66: continue
+                    if event.get('sportId') != 66:
+                        continue
                     event_id = str(event['id'])
                     current_event_ids.add(event_id)
-                    
+
                     # Atualiza cache
                     score_raw = event.get('score', [0, 0])
                     home = int(score_raw[0]) if len(score_raw) > 0 else 0
                     away = int(score_raw[1]) if len(score_raw) > 1 else 0
-                    
-                    live_time = str(event.get('liveTime', event.get('ls', ''))).lower()
+
+                    live_time = str(
+                        event.get('liveTime', event.get('ls', ''))).lower()
                     cached_ht_home = live_cache[event_id].get("ht_home", 0)
                     cached_ht_away = live_cache[event_id].get("ht_away", 0)
-                    
+
                     if "1" in live_time or "int" in live_time:
                         ht_home = home
                         ht_away = away
                     else:
                         ht_home = cached_ht_home
                         ht_away = cached_ht_away
-                        
+
                     competitor_ids = event.get('competitorIds', [])
                     if len(competitor_ids) >= 2:
                         home_raw = competitors_dict.get(competitor_ids[0], '')
                         away_raw = competitors_dict.get(competitor_ids[1], '')
                     else:
                         home_raw, away_raw = '', ''
-                        
+
                     if not home_raw or not away_raw:
                         parts = str(event.get('name', '')).split(' vs. ')
                         if len(parts) == 2:
-                            home_raw, away_raw = parts[0].strip(), parts[1].strip()
-                            
+                            home_raw, away_raw = parts[0].strip(
+                            ), parts[1].strip()
+
                     league = champs_dict.get(event.get('champId'), '')
-                    
+
                     # Captura startDate da API
                     start_date_str = event.get('startDate', '')
                     started_at = None
                     if start_date_str:
                         try:
-                            started_at = datetime.fromisoformat(start_date_str.replace('Z', '+00:00'))
+                            started_at = datetime.fromisoformat(
+                                start_date_str.replace('Z', '+00:00'))
                         except:
                             started_at = None
-                    
+
                     live_cache[event_id] = {
                         "home_score": home,
                         "away_score": away,
@@ -340,12 +401,13 @@ async def scraper_loop():
                         "started_at": started_at,
                         "last_seen": datetime.now(timezone.utc)
                     }
-                    print(f"[DEBUG LIVE] {event_id}: {home_raw} {home}-{away} {away_raw}")
-                
+                    print(
+                        f"[DEBUG LIVE] {event_id}: {home_raw} {home}-{away} {away_raw}")
+
                 print(f"[DEBUG] Eventos live atuais: {len(current_event_ids)}")
-                
+
                 finished_ids = previous_event_ids - current_event_ids
-                
+
                 for event_id in finished_ids:
                     print(f"[INFO] Finalizado detectado: {event_id}")
                     cached = live_cache[event_id]
@@ -354,18 +416,19 @@ async def scraper_loop():
                     home_nick = extract_pure_nick_canonical(home_raw)
                     away_nick = extract_pure_nick_canonical(away_raw)
                     league_mapped = map_league_name(cached["league"])
-                    
+
                     placar_final = {
                         "ft_home": cached["home_score"],
                         "ft_away": cached["away_score"],
                         "ht_home": cached.get("ht_home", 0),
                         "ht_away": cached.get("ht_away", 0)
                     }
-                    
+
                     # Tenta details
                     try:
                         details = await fetch_event_details(event_id)
-                        dh, da = details.get("ft_home", 0), details.get("ft_away", 0)
+                        dh, da = details.get(
+                            "ft_home", 0), details.get("ft_away", 0)
                         if dh >= placar_final["ft_home"] and da >= placar_final["ft_away"] and (dh > 0 or da > 0):
                             placar_final["ft_home"] = dh
                             placar_final["ft_away"] = da
@@ -376,14 +439,15 @@ async def scraper_loop():
                             placar_final["ht_away"] = hta
                     except:
                         pass
-                    
+
                     tracker = await fetch_event_tracker_info(event_id)
                     if tracker:
-                        th, ta = tracker.get("ft_home", 0), tracker.get("ft_away", 0)
+                        th, ta = tracker.get(
+                            "ft_home", 0), tracker.get("ft_away", 0)
                         if th >= placar_final["ft_home"] and ta >= placar_final["ft_away"] and (th > 0 or ta > 0):
                             placar_final["ft_home"] = th
                             placar_final["ft_away"] = ta
-                    
+
                     # ALtenar DB Sync - APENAS LIGAS VALHALLA E VALKYRIE
                     if "VALHALLA" in league_mapped.upper() or "VALKYRIE" in league_mapped.upper():
                         doc = {
@@ -401,12 +465,14 @@ async def scraper_loop():
                             "finished_at": datetime.now(timezone.utc),
                             "source": "desaparecimento_cache_tracker"
                         }
-                        
+
                         await matches.update_one({"event_id": event_id}, {"$set": doc}, upsert=True)
-                        print(f"✅ ALTENAR SALVO: {home_nick} {placar_final['ft_home']}-{placar_final['ft_away']} {away_nick} (HT: {placar_final['ht_home']}-{placar_final['ht_away']})")
+                        print(
+                            f"✅ ALTENAR SALVO: {home_nick} {placar_final['ft_home']}-{placar_final['ft_away']} {away_nick} (HT: {placar_final['ht_home']}-{placar_final['ht_away']})")
                     else:
-                        print(f"⏭️ ALTENAR IGNORADO (Não é Valhalla/Valkyrie): {home_nick} vs {away_nick} na liga {league_mapped}")
-                
+                        print(
+                            f"⏭️ ALTENAR IGNORADO (Não é Valhalla/Valkyrie): {home_nick} vs {away_nick} na liga {league_mapped}")
+
                 if finished_ids:
                     # Limita a coleção para manter no máximo 1000 jogos
                     total_matches = await matches.count_documents({})
@@ -416,30 +482,36 @@ async def scraper_loop():
                         old_ids = [m["_id"] for m in oldest_matches]
                         if old_ids:
                             await matches.delete_many({"_id": {"$in": old_ids}})
-                            print(f"🧹 [CLEANUP] {len(old_ids)} jogos mais antigos excluídos para manter no máximo 1000.")
+                            print(
+                                f"🧹 [CLEANUP] {len(old_ids)} jogos mais antigos excluídos para manter no máximo 1000.")
 
                 previous_event_ids = current_event_ids
-                
+
         except Exception as e:
             print(f"Scraper error: {e}")
-        
+
         await asyncio.sleep(8)
 
 # ====================== ENDPOINTS ======================
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
+
 
 @app.get("/api/history")
 async def get_history(page: int = 1, limit: int = 30):
     five_days_ago = datetime.now(timezone.utc) - timedelta(days=5)
     skip = (page - 1) * limit
-    cursor = matches.find({"finished_at": {"$gte": five_days_ago}}).sort("finished_at", -1).skip(skip).limit(limit)
+    cursor = matches.find({"finished_at": {"$gte": five_days_ago}}).sort(
+        "finished_at", -1).skip(skip).limit(limit)
     results = await cursor.to_list(length=limit)
     for r in results:
         r.pop("_id", None)
     total = await matches.count_documents({"finished_at": {"$gte": five_days_ago}})
     return {"results": results, "page": page, "total": total}
+
 
 @app.get("/api/finished/{event_id}")
 async def get_by_event_id(event_id: str):
@@ -449,6 +521,7 @@ async def get_by_event_id(event_id: str):
         return doc
     return {"error": "not found"}
 
+
 @app.on_event("startup")
 async def startup():
     print("🧹 [CLEANUP] Removendo jogos legados da Altenar (que não são Valhalla/Valkyrie)...")
@@ -457,7 +530,8 @@ async def startup():
             "source": "desaparecimento_cache_tracker",
             "league_mapped": {"$not": {"$regex": "VALHALLA|VALKYRIE", "$options": "i"}}
         })
-        print(f"🧹 [CLEANUP] {result.deleted_count} jogos legados removidos com sucesso!")
+        print(
+            f"🧹 [CLEANUP] {result.deleted_count} jogos legados removidos com sucesso!")
     except Exception as e:
         print(f"Erro no cleanup: {e}")
 
