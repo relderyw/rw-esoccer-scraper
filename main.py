@@ -10,6 +10,10 @@ from collections import defaultdict
 
 app = FastAPI(title="RW Tips - Esoccer Result Scraper v2.0")
 
+# Fuso horário do usuário (UTC-4)
+USER_TZ = timezone(timedelta(hours=-4))
+
+
 # ====================== CONFIG ======================
 MONGO_URI = os.getenv("MONGO_URI")
 client = AsyncIOMotorClient(MONGO_URI)
@@ -40,8 +44,9 @@ live_cache = defaultdict(lambda: {
     "away_raw": "",
     "league": "",
     "started_at": None,
-    "last_seen": datetime.now(timezone.utc)
+    "last_seen": datetime.now(USER_TZ)
 })
+
 
 # ====================== AUXILIARES ======================
 
@@ -243,12 +248,13 @@ async def superbet_scraper_loop():
     print("🚀 Superbet History Scraper Iniciado (30s)")
     while True:
         try:
-            now = datetime.now(timezone.utc)
-            # Buscar as ultimas 3 horas é suficiente se batemos a cada 30s
-            past = now - timedelta(hours=3)
+            # Query dates always in UTC for Superbet API
+            now_utc = datetime.now(timezone.utc)
+            past_utc = now_utc - timedelta(hours=3)
 
-            start_date = past.strftime('%Y-%m-%d+%H:%M:%S')
-            end_date = now.strftime('%Y-%m-%d+%H:%M:%S')
+            start_date = past_utc.strftime('%Y-%m-%d+%H:%M:%S')
+            end_date = now_utc.strftime('%Y-%m-%d+%H:%M:%S')
+
 
             url = SUPERBET_HISTORY_API.format(start_date, end_date)
 
@@ -296,7 +302,8 @@ async def superbet_scraper_loop():
 
                         utc_date = event.get('utcDate')
                         finished_at = datetime.fromisoformat(utc_date.replace(
-                            'Z', '+00:00')) if utc_date else datetime.now(timezone.utc)
+                            'Z', '+00:00')).astimezone(USER_TZ) if utc_date else datetime.now(USER_TZ)
+
 
                         doc = {
                             "event_id": f"sb-{event_id}",
@@ -400,10 +407,12 @@ async def scraper_loop():
                     started_at = None
                     if start_date_str:
                         try:
+                            # Converte do UTC da API para o timezone do usuário
                             started_at = datetime.fromisoformat(
-                                start_date_str.replace('Z', '+00:00'))
+                                start_date_str.replace('Z', '+00:00')).astimezone(USER_TZ)
                         except:
                             started_at = None
+
 
                     live_cache[event_id] = {
                         "home_score": home,
@@ -414,8 +423,9 @@ async def scraper_loop():
                         "away_raw": away_raw,
                         "league": league,
                         "started_at": started_at,
-                        "last_seen": datetime.now(timezone.utc)
+                        "last_seen": datetime.now(USER_TZ)
                     }
+
                     print(
                         f"[DEBUG LIVE] {event_id}: {home_raw} {home}-{away} {away_raw}")
 
@@ -477,8 +487,9 @@ async def scraper_loop():
                             "home_score_ft": placar_final["ft_home"],
                             "away_score_ft": placar_final["ft_away"],
                             "started_at": cached.get("started_at"),
-                            "finished_at": datetime.now(timezone.utc),
+                            "finished_at": datetime.now(USER_TZ),
                             "source": "desaparecimento_cache_tracker"
+
                         }
 
                         await matches.update_one({"event_id": event_id}, {"$set": doc}, upsert=True)
@@ -512,18 +523,31 @@ async def scraper_loop():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
+    return {"status": "ok", "time": datetime.now(USER_TZ).isoformat()}
+
 
 
 @app.get("/api/history")
 async def get_history(page: int = 1, limit: int = 30):
-    five_days_ago = datetime.now(timezone.utc) - timedelta(days=5)
+    five_days_ago = datetime.now(USER_TZ) - timedelta(days=5)
+
     skip = (page - 1) * limit
     cursor = matches.find({"finished_at": {"$gte": five_days_ago}}).sort(
         "finished_at", -1).skip(skip).limit(limit)
     results = await cursor.to_list(length=limit)
     for r in results:
         r.pop("_id", None)
+        if hasattr(r.get("finished_at"), "isoformat"):
+            r["finished_at"] = r["finished_at"].isoformat()
+            if not r["finished_at"].endswith('Z') and '+' not in r["finished_at"] and '-' not in r["finished_at"][19:]:
+                # Note: isoformat for USER_TZ will already have offset, so we only add Z if manually needed/missing.
+                # However, with astimezone(USER_TZ), isoformat() includes -04:00.
+                pass
+        if hasattr(r.get("started_at"), "isoformat"):
+            r["started_at"] = r["started_at"].isoformat()
+            if not r["started_at"].endswith('Z') and '+' not in r["started_at"] and '-' not in r["started_at"][19:]:
+                pass
+
     total = await matches.count_documents({"finished_at": {"$gte": five_days_ago}})
     return {"results": results, "page": page, "total": total}
 
@@ -533,6 +557,15 @@ async def get_by_event_id(event_id: str):
     doc = await matches.find_one({"event_id": event_id})
     if doc:
         doc.pop("_id", None)
+        if hasattr(doc.get("finished_at"), "isoformat"):
+            doc["finished_at"] = doc["finished_at"].isoformat()
+            if not doc["finished_at"].endswith('Z') and '+' not in doc["finished_at"] and '-' not in doc["finished_at"][19:]:
+                pass
+        if hasattr(doc.get("started_at"), "isoformat"):
+            doc["started_at"] = doc["started_at"].isoformat()
+            if not doc["started_at"].endswith('Z') and '+' not in doc["started_at"] and '-' not in doc["started_at"][19:]:
+                pass
+
         return doc
     return {"error": "not found"}
 
