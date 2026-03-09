@@ -538,15 +538,17 @@ async def get_history(page: int = 1, limit: int = 30):
     for r in results:
         r.pop("_id", None)
         if hasattr(r.get("finished_at"), "isoformat"):
-            r["finished_at"] = r["finished_at"].isoformat()
-            if not r["finished_at"].endswith('Z') and '+' not in r["finished_at"] and '-' not in r["finished_at"][19:]:
-                # Note: isoformat for USER_TZ will already have offset, so we only add Z if manually needed/missing.
-                # However, with astimezone(USER_TZ), isoformat() includes -04:00.
-                pass
+            # Ensure it is aware of timezone then convert to user local
+            dt = r["finished_at"]
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            r["finished_at"] = dt.astimezone(USER_TZ).isoformat()
         if hasattr(r.get("started_at"), "isoformat"):
-            r["started_at"] = r["started_at"].isoformat()
-            if not r["started_at"].endswith('Z') and '+' not in r["started_at"] and '-' not in r["started_at"][19:]:
-                pass
+            dt = r["started_at"]
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            r["started_at"] = dt.astimezone(USER_TZ).isoformat()
+
 
     total = await matches.count_documents({"finished_at": {"$gte": five_days_ago}})
     return {"results": results, "page": page, "total": total}
@@ -558,13 +560,16 @@ async def get_by_event_id(event_id: str):
     if doc:
         doc.pop("_id", None)
         if hasattr(doc.get("finished_at"), "isoformat"):
-            doc["finished_at"] = doc["finished_at"].isoformat()
-            if not doc["finished_at"].endswith('Z') and '+' not in doc["finished_at"] and '-' not in doc["finished_at"][19:]:
-                pass
+            dt = doc["finished_at"]
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            doc["finished_at"] = dt.astimezone(USER_TZ).isoformat()
         if hasattr(doc.get("started_at"), "isoformat"):
-            doc["started_at"] = doc["started_at"].isoformat()
-            if not doc["started_at"].endswith('Z') and '+' not in doc["started_at"] and '-' not in doc["started_at"][19:]:
-                pass
+            dt = doc["started_at"]
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            doc["started_at"] = dt.astimezone(USER_TZ).isoformat()
+
 
         return doc
     return {"error": "not found"}
