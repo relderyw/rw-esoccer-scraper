@@ -118,13 +118,21 @@ def extract_pure_nick_canonical(raw: str) -> str:
 def map_league_name(name: str, duration: str = "8 min") -> str:
     original = name.upper()
 
+    # Normalização de Valkyrie / Valhalla
+    if "VALKYRIE" in original or "VALKIRYE" in original:
+        return "VALKYRIE CUP"
+    if "VALHALLA" in original:
+        return "VALHALLA CUP"
+
     if "H2H" in original:
-        return "H2H 8 MIN"
+        return "H2H GG LEAGUE"
 
     if "BATTLE" in original:
         if "6" in duration or "3 MIN" in duration.upper() or "VOLTA" in original:
             return "VOLTA - 6 MIN"
-        return "BATTLE 8 MIN"
+        if "12" in duration:
+            return "BATTLE - 12 MIN"
+        return "BATTLE - 8 MIN"
 
     if "GT " in original or "GT LEAGUES" in original:
         return "GT LEAGUES"
@@ -137,7 +145,17 @@ def map_league_name(name: str, duration: str = "8 min") -> str:
             return "CHAMPIONS LEAGUE - 12 MIN"
         return "CHAMPIONS LEAGUE"
 
-    return name.strip() or "UNKNOWN"
+    if "CLA" in original or "CYBER LIVE ARENA" in original:
+        return "CLA LEAGUE"
+
+    # Garantir prefixo E-SOCCER se não tiver
+    mapped = name.strip() or "UNKNOWN"
+    if "ESOCCER" in mapped.upper() and "E-SOCCER" not in mapped.upper():
+        # Substitui variações de Esoccer por E-SOCCER
+        mapped = re.sub(r'Esoccer|esoccer|ESOCCER|E-SOCCER',
+                        'E-SOCCER', mapped, flags=re.IGNORECASE)
+
+    return mapped
 
 # ====================== FETCH ======================
 
@@ -365,7 +383,8 @@ async def scraper_loop():
                                for c in data.get('champs', [])}
 
                 for event in current_events:
-                    if event.get('sportId') != 66:
+                    # Permite SportId 66 (Esoccer Altenar) e 146 (E-Soccer Geral)
+                    if event.get('sportId') not in [66, 146]:
                         continue
                     event_id = str(event['id'])
                     current_event_ids.add(event_id)
@@ -473,8 +492,18 @@ async def scraper_loop():
                             placar_final["ft_home"] = th
                             placar_final["ft_away"] = ta
 
-                    # ALtenar DB Sync - APENAS LIGAS VALHALLA E VALKYRIE
-                    if "VALHALLA" in league_mapped.upper() or "VALKYRIE" in league_mapped.upper():
+                    # Altenar DB Sync - Valhalla, Valkyrie, Adriatic, CLA, H2H
+                    allowed_alt = ["VALHALLA", "VALKYRIE", "VALKIRYE", "ADRIATIC", "CLA", "H2H", "EAL", "CYBER LIVE ARENA"]
+                    
+                    is_special_league = any(x in league_mapped.upper() for x in ["VALHALLA", "VALKYRIE"])
+                    is_cup = "CUP" in cached["league"].upper()
+                    
+                    # Se for Valhalla ou Valkyrie, deve ser CUP (para filtrar basquete)
+                    if is_special_league and not is_cup:
+                        print(f"⏭️ ALTENAR IGNORADO (Basquete detectado): {home_nick} vs {away_nick} na liga {cached['league']}")
+                        continue
+
+                    if any(x in league_mapped.upper() for x in allowed_alt) or any(x in cached["league"].upper() for x in allowed_alt):
                         doc = {
                             "event_id": event_id,
                             "league_mapped": league_mapped,
@@ -497,7 +526,7 @@ async def scraper_loop():
                             f"✅ ALTENAR SALVO: {home_nick} {placar_final['ft_home']}-{placar_final['ft_away']} {away_nick} (HT: {placar_final['ht_home']}-{placar_final['ht_away']})")
                     else:
                         print(
-                            f"⏭️ ALTENAR IGNORADO (Não é Valhalla/Valkyrie): {home_nick} vs {away_nick} na liga {league_mapped}")
+                            f"⏭️ ALTENAR IGNORADO (Não mapeado): {home_nick} vs {away_nick} na liga {league_mapped}")
 
                 if finished_ids:
                     # Limita a coleção para manter no máximo 1000 jogos
@@ -581,7 +610,7 @@ async def startup():
     try:
         result = await matches.delete_many({
             "source": "desaparecimento_cache_tracker",
-            "league_mapped": {"$not": {"$regex": "VALHALLA|VALKYRIE", "$options": "i"}}
+            "league_mapped": {"$not": {"$regex": "VALHALLA|VALKYRIE|VALKIRYE", "$options": "i"}}
         })
         print(
             f"🧹 [CLEANUP] {result.deleted_count} jogos legados removidos com sucesso!")
